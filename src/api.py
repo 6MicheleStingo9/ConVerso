@@ -6,6 +6,8 @@ The agent responds using multiple personalities (default, mysterious, etc.).
 
 import os
 import sys
+import uuid
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -31,6 +33,11 @@ logger = create_logger("api")
 compiled_graph = None
 cv_text = None
 
+# Session store: session_id -> {"history": [...], "last_access": timestamp}
+sessions: dict[str, dict] = {}
+SESSION_TTL_SECONDS = 1800  # 30 minutes
+MAX_HISTORY_ENTRIES = 20  # Limit history size per session
+
 
 # ============================================================================
 # REQUEST/RESPONSE MODELS
@@ -41,7 +48,7 @@ class QuestionRequest(BaseModel):
     """Request model for asking a question to the agent."""
 
     question: str
-    include_history: Optional[bool] = False
+    session_id: Optional[str] = None
 
 
 class PersonalityAnswer(BaseModel):
@@ -56,6 +63,8 @@ class QuestionResponse(BaseModel):
 
     question: str
     answers: dict[str, str]  # personality -> answer
+    session_id: str
+    history_length: int
     success: bool
 
 
@@ -142,18 +151,59 @@ async def health_check():
     )
 
 
+def cleanup_expired_sessions():
+    """Remove sessions that have exceeded TTL."""
+    now = time.time()
+    expired = [
+        sid
+        for sid, data in sessions.items()
+        if now - data["last_access"] > SESSION_TTL_SECONDS
+    ]
+    for sid in expired:
+        del sessions[sid]
+    if expired:
+        logger.info(f"Cleaned up {len(expired)} expired sessions")
+
+
+def get_or_create_session(session_id: Optional[str]) -> tuple[str, list]:
+    """Get existing session or create a new one.
+
+    Returns:
+        Tuple of (session_id, history)
+    """
+    cleanup_expired_sessions()
+
+    if session_id and session_id in sessions:
+        sessions[session_id]["last_access"] = time.time()
+        return session_id, sessions[session_id]["history"]
+
+    new_id = str(uuid.uuid4())
+    sessions[new_id] = {"history": [], "last_access": time.time()}
+    logger.info(f"Created new session: {new_id}")
+    return new_id, []
+
+
+def update_session_history(session_id: str, new_history: list):
+    """Update session history, enforcing max entries limit."""
+    if session_id in sessions:
+        # Keep only the last MAX_HISTORY_ENTRIES
+        sessions[session_id]["history"] = new_history[-MAX_HISTORY_ENTRIES:]
+        sessions[session_id]["last_access"] = time.time()
+
+
 @app.post("/ask", response_model=QuestionResponse)
 async def ask_question(request: QuestionRequest):
     """Ask a question about the CV.
 
     The agent will respond with answers from multiple personalities
-    (default, mysterious, etc.) in parallel.
+    (default, mysterious, etc.) in parallel. Session history is maintained
+    server-side using the session_id.
 
     Args:
-        request: QuestionRequest containing the question text
+        request: QuestionRequest containing the question and optional session_id
 
     Returns:
-        QuestionResponse with answers grouped by personality
+        QuestionResponse with answers grouped by personality and session_id
 
     Raises:
         HTTPException: If the CV is not loaded or question is empty
@@ -173,14 +223,19 @@ async def ask_question(request: QuestionRequest):
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     question = request.question.strip()
-    logger.info(f"Processing question: {question}")
+
+    # Get or create session
+    session_id, history = get_or_create_session(request.session_id)
+    logger.info(
+        f"Processing question for session {session_id[:8]}... (history: {len(history)} entries)"
+    )
 
     try:
-        # Prepare the state for the graph
+        # Prepare the state for the graph with existing history
         state = {
             "cv_text": cv_text,
             "question": question,
-            "history": [],
+            "history": history,
             "responses": [],
         }
 
@@ -190,14 +245,21 @@ async def ask_question(request: QuestionRequest):
         # Extract and format the answers
         answers_dict = {}
         for response in result.get("responses", []):
-            # Each response is a dict with personality as key
             answers_dict.update(response)
 
-        logger.info(f"Got {len(answers_dict)} personality responses")
+        # Update session with new history from graph
+        new_history = result.get("history", [])
+        update_session_history(session_id, new_history)
+
+        logger.info(
+            f"Got {len(answers_dict)} personality responses, history now {len(new_history)} entries"
+        )
 
         return QuestionResponse(
             question=question,
             answers=answers_dict,
+            session_id=session_id,
+            history_length=len(new_history),
             success=True,
         )
 
