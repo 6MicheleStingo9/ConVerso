@@ -1,4 +1,4 @@
-# ConVersum - CV Q&A Agent API
+# ConVerso - CV Q&A Agent API
 
 A multi-personality AI assistant that answers questions about your CV using Google's Gemini model. The agent responds with different personas to provide diverse perspectives on your professional background.
 
@@ -21,8 +21,8 @@ A multi-personality AI assistant that answers questions about your CV using Goog
 1. **Clone the repository**
 
 ```bash
-git clone https://github.com/yourusername/ConVersum.git
-cd ConVersum
+git clone https://github.com/yourusername/ConVerso.git
+cd ConVerso
 ```
 
 2. **Create a virtual environment**
@@ -121,7 +121,7 @@ This provides an interactive Swagger UI where you can test all endpoints directl
 ## Project Structure
 
 ```
-ConVersum/
+ConVerso/
 ├── src/
 │   ├── api.py                 # FastAPI application
 │   ├── agent/
