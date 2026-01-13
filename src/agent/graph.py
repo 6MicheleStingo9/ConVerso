@@ -2,7 +2,7 @@
 
 This module builds a small state graph (using `langgraph`) that:
 - normalizes incoming state,
-- asks the LLM for answers using different personalities (e.g. "default", "mysterious"),
+- asks the LLM for answers using different personalities (e.g. "default", "primus_alter"),
 - and merges the responses into a session history.
 
 The script can be run interactively: it will load a CV PDF from
@@ -80,10 +80,10 @@ def answer_default(state: AgentState) -> dict:
     return answer_personality(state, "default")
 
 
-def answer_mysterious(state: AgentState) -> dict:
-    """Produce an answer using the "mysterious" personality."""
+def answer_primus_alter(state: AgentState) -> dict:
+    """Produce an answer using the "primus_alter" personality."""
 
-    return answer_personality(state, "mysterious")
+    return answer_personality(state, "primus_alter")
 
 
 def answer_personality(state: AgentState, personality: str) -> dict:
@@ -166,7 +166,7 @@ def build_agent_graph():
     """Constructs and returns the StateGraph for the agent.
 
     The graph has the following structure:
-    - prepare_state -> (answer_default, answer_mysterious) -> finalize_session
+    - prepare_state -> (answer_default, answer_primus_alter) -> finalize_session
     where the two answer nodes run in parallel and their `responses` lists
     are merged by the Annotated[list, operator.add] rule.
     """
@@ -175,14 +175,14 @@ def build_agent_graph():
 
     graph.add_node("prepare_state", prepare_state)
     graph.add_node("answer_default", answer_default)
-    graph.add_node("answer_mysterious", answer_mysterious)
+    graph.add_node("answer_primus_alter", answer_primus_alter)
     graph.add_node("finalize_session", finalize_session)
 
     graph.add_edge("prepare_state", "answer_default")
-    graph.add_edge("prepare_state", "answer_mysterious")
+    graph.add_edge("prepare_state", "answer_primus_alter")
     # Parallel nodes converge on the finalize node
     graph.add_edge("answer_default", "finalize_session")
-    graph.add_edge("answer_mysterious", "finalize_session")
+    graph.add_edge("answer_primus_alter", "finalize_session")
 
     graph.set_entry_point("prepare_state")
     graph.set_finish_point("finalize_session")

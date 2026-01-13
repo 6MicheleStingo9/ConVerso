@@ -255,13 +255,18 @@ async def ask_question(request: QuestionRequest):
             f"Got {len(answers_dict)} personality responses, history now {len(new_history)} entries"
         )
 
-        return QuestionResponse(
+        resp = QuestionResponse(
             question=question,
             answers=answers_dict,
             session_id=session_id,
             history_length=len(new_history),
             success=True,
         )
+
+        # Log the full response payload for debugging
+        logger.info(f"/ask response payload: {resp.model_dump_json()}")
+
+        return resp
 
     except Exception as e:
         logger.error(f"Error processing question: {str(e)}", exc_info=True)
